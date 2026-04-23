@@ -257,5 +257,10 @@ export const createPostProcessing = ({
             .onChange((v) => { bloomPass.enabled = v })
     }
 
-    return { composer, update }
+    return {
+        composer,
+        update,
+        bloomPass,
+        setGodRaysEnabled: (v) => { godRaysPass.uniforms.uEnabled.value = v ? 1 : 0 },
+    }
 }

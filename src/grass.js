@@ -194,5 +194,5 @@ export const createGrass = ({ sampleHeight, anisotropy = 1, wind = null }) => {
         uniforms.uTime.value = elapsedTime
     }
 
-    return { mesh, update, uniforms, regrow }
+    return { mesh, update, uniforms, regrow, setCount: (n) => { mesh.count = n } }
 }

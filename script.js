@@ -62,6 +62,22 @@ let updateFoxes = () => {}
 let updateLeaves = () => {}
 let composer = null
 let updatePostProcessing = () => {}
+let setGrassCount = () => {}
+let setGodRaysEnabled = () => {}
+let adaptiveBloomPass = null
+
+const QUALITY_HIGH = 2, QUALITY_MEDIUM = 1, QUALITY_LOW = 0
+const GRASS_BY_TIER = [40000, 60000, 80000]
+let currentTier = QUALITY_HIGH
+let fpsSampleTime = 0
+let fpsSampleFrames = 0
+const FPS_SAMPLE_INTERVAL = 3
+
+const applyQualityTier = (tier) => {
+    setGrassCount(GRASS_BY_TIER[tier])
+    setGodRaysEnabled(tier === QUALITY_HIGH)
+    if (adaptiveBloomPass) adaptiveBloomPass.enabled = tier !== QUALITY_LOW
+}
 
 const isDebug = window.location.hash.includes('#debug')
 if (!isDebug) gui.close()
@@ -280,6 +296,7 @@ const init = async () => {
 
     const grassData = createGrass({ sampleHeight, anisotropy, wind })
     updateGrass = grassData.update
+    setGrassCount = grassData.setCount
     scene.add(grassData.mesh)
 
     const { mesh: bushes } = createBushes({ sampleHeight, anisotropy, wind })
@@ -337,6 +354,8 @@ const init = async () => {
     })
     composer = pp.composer
     updatePostProcessing = pp.update
+    setGodRaysEnabled = pp.setGodRaysEnabled
+    adaptiveBloomPass = pp.bloomPass
 
     attachResize(renderer, camera, sizes, composer)
 
@@ -369,6 +388,21 @@ const tick = () => {
     updateFoxes(dt)
     updateLeaves(dt)
     updatePostProcessing(camera)
+
+    fpsSampleTime += dt
+    fpsSampleFrames++
+    if (fpsSampleTime >= FPS_SAMPLE_INTERVAL) {
+        const avgFps = fpsSampleFrames / fpsSampleTime
+        fpsSampleTime = 0
+        fpsSampleFrames = 0
+        let newTier = currentTier
+        if (avgFps < 50 && currentTier > QUALITY_LOW) newTier = currentTier - 1
+        else if (avgFps > 57 && currentTier < QUALITY_HIGH) newTier = currentTier + 1
+        if (newTier !== currentTier) {
+            currentTier = newTier
+            applyQualityTier(newTier)
+        }
+    }
 
     stats.update()
 

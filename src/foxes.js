@@ -15,13 +15,24 @@ const FOREST_MAX_R = 19
 
 const loader = new GLTFLoader()
 
+const isPathClear = (fx, fz, tx, tz) => {
+    for (let i = 1; i <= 5; i++) {
+        const t = i / 6
+        if (isInPondExclusion(fx + (tx - fx) * t, fz + (tz - fz) * t, POND_MARGIN)) return false
+    }
+    return true
+}
+
+const MAX_WAYPOINT_ARC = Math.PI * (2 / 3)
+
 const pickWaypoint = (fx, fz) => {
+    const foxAngle = Math.atan2(fz - POND.z, fx - POND.x)
     for (let i = 0; i < WAYPOINT_TRIES; i++) {
-        const a = Math.random() * Math.PI * 2
+        const a = foxAngle + (Math.random() * 2 - 1) * MAX_WAYPOINT_ARC
         const r = POND_MIN_R + Math.random() * (FOREST_MAX_R - POND_MIN_R)
         const nx = POND.x + Math.cos(a) * r
         const nz = POND.z + Math.sin(a) * r
-        if (!isInPondExclusion(nx, nz, POND_MARGIN)) return { x: nx, z: nz }
+        if (!isInPondExclusion(nx, nz, POND_MARGIN) && isPathClear(fx, fz, nx, nz)) return { x: nx, z: nz }
     }
     return null
 }
