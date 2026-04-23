@@ -68,16 +68,30 @@ let adaptiveBloomPass = null
 
 const QUALITY_HIGH = 2, QUALITY_MEDIUM = 1, QUALITY_LOW = 0
 const GRASS_BY_TIER = [40000, 60000, 80000]
+const FPS_SAMPLE_INTERVAL = 3
+const DOWNGRADE_FPS = 50, DOWNGRADE_HOLD = 6
+const UPGRADE_FPS = 57, UPGRADE_HOLD = 15
 let currentTier = QUALITY_HIGH
 let fpsSampleTime = 0
 let fpsSampleFrames = 0
-const FPS_SAMPLE_INTERVAL = 3
+let downgradeTimer = 0
+let upgradeTimer = 0
 
 const applyQualityTier = (tier) => {
     setGrassCount(GRASS_BY_TIER[tier])
     setGodRaysEnabled(tier === QUALITY_HIGH)
     if (adaptiveBloomPass) adaptiveBloomPass.enabled = tier !== QUALITY_LOW
 }
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        clock.getDelta()
+        fpsSampleTime = 0
+        fpsSampleFrames = 0
+        downgradeTimer = 0
+        upgradeTimer = 0
+    }
+})
 
 const isDebug = window.location.hash.includes('#debug')
 if (!isDebug) gui.close()
@@ -372,7 +386,7 @@ const init = async () => {
 }
 
 const tick = () => {
-    const dt = clock.getDelta()
+    const dt = Math.min(clock.getDelta(), 0.1)
     const elapsedTime = clock.getElapsedTime()
 
     if (controls) {
@@ -395,12 +409,25 @@ const tick = () => {
         const avgFps = fpsSampleFrames / fpsSampleTime
         fpsSampleTime = 0
         fpsSampleFrames = 0
-        let newTier = currentTier
-        if (avgFps < 50 && currentTier > QUALITY_LOW) newTier = currentTier - 1
-        else if (avgFps > 57 && currentTier < QUALITY_HIGH) newTier = currentTier + 1
-        if (newTier !== currentTier) {
-            currentTier = newTier
-            applyQualityTier(newTier)
+        if (avgFps < DOWNGRADE_FPS && currentTier > QUALITY_LOW) {
+            downgradeTimer += FPS_SAMPLE_INTERVAL
+            upgradeTimer = 0
+            if (downgradeTimer >= DOWNGRADE_HOLD) {
+                downgradeTimer = 0
+                currentTier--
+                applyQualityTier(currentTier)
+            }
+        } else if (avgFps > UPGRADE_FPS && currentTier < QUALITY_HIGH) {
+            upgradeTimer += FPS_SAMPLE_INTERVAL
+            downgradeTimer = 0
+            if (upgradeTimer >= UPGRADE_HOLD) {
+                upgradeTimer = 0
+                currentTier++
+                applyQualityTier(currentTier)
+            }
+        } else {
+            downgradeTimer = 0
+            upgradeTimer = 0
         }
     }
 
