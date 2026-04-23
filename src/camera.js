@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
 export const DEV_CAMERA = true
 
-const BASE_POSITION = new THREE.Vector3(8, 3.5, 10)
+export const BASE_POSITION = new THREE.Vector3(8, 3.5, 10)
 const BASE_TARGET = new THREE.Vector3(0, 1.2, 0)
 
 const SWAY_X_AMPLITUDE = 0.25

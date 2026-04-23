@@ -1,0 +1,11 @@
+Model Information:
+* title:	Ghibli Stylized Tree
+* source:	https://sketchfab.com/3d-models/ghibli-stylized-tree-088ff27a6e1b46e5a2f8597f4fcdffd4
+* author:	Alex Ace (https://sketchfab.com/luckysalt)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Ghibli Stylized Tree" (https://sketchfab.com/3d-models/ghibli-stylized-tree-088ff27a6e1b46e5a2f8597f4fcdffd4) by Alex Ace (https://sketchfab.com/luckysalt) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

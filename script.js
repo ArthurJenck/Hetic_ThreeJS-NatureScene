@@ -7,11 +7,20 @@ import {
     createDevControls,
     applySway,
     DEV_CAMERA,
+    BASE_POSITION,
 } from './src/camera.js'
 import { createSky } from './src/sky.js'
 import { createLights } from './src/lights.js'
 import { createTerrain } from './src/terrain.js'
-import { createGrass } from './src/grass.js'
+import { createGrass, GRASS_DEFAULTS } from './src/grass.js'
+import { createBushes, createPlants } from './src/foliage.js'
+import { createForest, FOREST_DEFAULTS } from './src/trees.js'
+import { createPond } from './src/pond.js'
+import { wind, updateWind, triggerGust, WIND_DEFAULTS } from './src/wind.js'
+import { createAudio } from './src/audio.js'
+import { createFoxes } from './src/foxes.js'
+import { createLeaves } from './src/leaves.js'
+import { createPostProcessing } from './src/postprocessing.js'
 
 const canvas = document.querySelector('canvas.webgl')
 
@@ -21,8 +30,8 @@ const sizes = {
 }
 
 const scene = new THREE.Scene()
-scene.fog = new THREE.Fog('#cfe3ff', 60, 220)
-scene.background = new THREE.Color('#cfe3ff')
+scene.fog = new THREE.FogExp2('#84c3f2', 0.025)
+scene.background = new THREE.Color('#84c3f2')
 
 const renderer = createRenderer(canvas)
 renderer.setSize(sizes.width, sizes.height)
@@ -32,60 +41,320 @@ scene.add(camera)
 
 const controls = DEV_CAMERA ? createDevControls(camera, canvas) : null
 
-attachResize(renderer, camera, sizes)
-
 const { group: skyGroup, sunDirection } = createSky()
 scene.add(skyGroup)
 
-const { group: lightsGroup } = createLights(sunDirection)
+const { group: lightsGroup, directionalLight } = createLights(sunDirection)
 scene.add(lightsGroup)
 
 const anisotropy = renderer.capabilities.getMaxAnisotropy()
 
-const { mesh: terrain, sampleHeight } = createTerrain()
-scene.add(terrain)
-
-const {
-    mesh: grass,
-    update: updateGrass,
-    uniforms: grassUniforms,
-} = createGrass({
-    sampleHeight,
-    anisotropy,
-})
-scene.add(grass)
-
-const gui = new GUI({ title: 'Colors' })
-
-const terrainFolder = gui.addFolder('Terrain')
-terrainFolder
-    .addColor({ color: `#${terrain.material.color.getHexString()}` }, 'color')
-    .name('Sol')
-    .onChange((value) => terrain.material.color.set(value))
-
-const grassFolder = gui.addFolder('Grass')
-grassFolder
-    .addColor(
-        { color: `#${grassUniforms.uBaseTint.value.getHexString()}` },
-        'color',
-    )
-    .name('Base')
-    .onChange((value) => grassUniforms.uBaseTint.value.set(value))
-grassFolder
-    .addColor(
-        { color: `#${grassUniforms.uTipTint.value.getHexString()}` },
-        'color',
-    )
-    .name('Pointe')
-    .onChange((value) => grassUniforms.uTipTint.value.set(value))
+const gui = new GUI()
 
 const stats = new Stats()
 document.body.appendChild(stats.dom)
 
-const startTime = performance.now()
+const clock = new THREE.Clock()
+let updateGrass = () => {}
+let updatePond = () => {}
+let updateForest = () => {}
+let updateFoxes = () => {}
+let updateLeaves = () => {}
+let composer = null
+let updatePostProcessing = () => {}
+
+const isDebug = window.location.hash.includes('#debug')
+if (!isDebug) gui.close()
+
+const audio = createAudio(camera, gui, isDebug)
+
+const setupGui = ({
+    terrain,
+    grassUniforms,
+    grassRegrow,
+    dirLight,
+    forestRegrow,
+    forestSetCastShadows,
+}) => {
+    const triggerGustFn = () => {
+        const dur = audio?.getGustDuration?.() ?? null
+        triggerGust(clock.getElapsedTime(), dur)
+        audio?.playGust?.()
+    }
+
+    if (!isDebug) {
+        const grassParams = {
+            count: GRASS_DEFAULTS.count,
+            clusterRadius: GRASS_DEFAULTS.clusterRadius,
+        }
+        gui.add(grassParams, 'count', 500, 1000000, 500)
+            .name('Grass densité')
+            .onFinishChange((v) => {
+                grassParams.count = v
+                grassRegrow(grassParams.count, grassParams.clusterRadius)
+            })
+
+        const forestParams = {
+            density: FOREST_DEFAULTS.density,
+            clusterRadius: FOREST_DEFAULTS.clusterRadius,
+            forestRadius: FOREST_DEFAULTS.forestRadius,
+            scale: FOREST_DEFAULTS.scale,
+            castShadows: FOREST_DEFAULTS.castShadows,
+        }
+        gui.add(forestParams, 'density', 0.2, 3, 0.1)
+            .name('Forêt densité')
+            .onFinishChange(() => forestRegrow(forestParams))
+        gui.add(forestParams, 'castShadows')
+            .name('Forêt ombres')
+            .onChange((v) => forestSetCastShadows(v))
+
+        gui.add({ fn: triggerGustFn }, 'fn').name('Declencher bourrasque')
+        return
+    }
+
+    const perfFolder = gui.addFolder('Performances')
+    const perfParams = {
+        shadowSize: 512,
+        pixelRatio: Math.min(window.devicePixelRatio, 1.5),
+    }
+
+    perfFolder
+        .add(perfParams, 'shadowSize', [256, 512, 1024, 2048])
+        .name('Ombres (px)')
+        .onChange((v) => {
+            dirLight.shadow.mapSize.set(v, v)
+            if (dirLight.shadow.map) {
+                dirLight.shadow.map.dispose()
+                dirLight.shadow.map = null
+            }
+            renderer.shadowMap.needsUpdate = true
+        })
+
+    perfFolder
+        .add(perfParams, 'pixelRatio', {
+            '1x': 1,
+            '1.5x': 1.5,
+            Natif: window.devicePixelRatio,
+        })
+        .name('Resolution')
+        .onChange((v) => renderer.setPixelRatio(v))
+
+    const terrainFolder = gui.addFolder('Terrain')
+    terrainFolder
+        .addColor({ color: '#d9e3c1' }, 'color')
+        .name('Sol')
+        .onChange((value) => terrain.material.color.set(value))
+
+    const grassFolder = gui.addFolder('Grass')
+    const grassParams = {
+        count: GRASS_DEFAULTS.count,
+        clusterRadius: GRASS_DEFAULTS.clusterRadius,
+    }
+
+    grassFolder
+        .add(grassParams, 'count', 500, 1000000, 500)
+        .name('Densite')
+        .onFinishChange((value) => {
+            grassParams.count = value
+            grassRegrow(grassParams.count, grassParams.clusterRadius)
+        })
+
+    grassFolder
+        .add(grassParams, 'clusterRadius', 1, 35, 0.5)
+        .name('Taille des touffes')
+        .onFinishChange((value) => {
+            grassParams.clusterRadius = value
+            grassRegrow(grassParams.count, grassParams.clusterRadius)
+        })
+
+    grassFolder
+        .addColor(
+            { color: `#${grassUniforms.uTipTint.value.getHexString()}` },
+            'color',
+        )
+        .name('Pointe')
+        .onChange((value) => grassUniforms.uTipTint.value.set(value))
+    grassFolder
+        .addColor(
+            { color: `#${grassUniforms.uBaseTint.value.getHexString()}` },
+            'color',
+        )
+        .name('Base')
+        .onChange((value) => grassUniforms.uBaseTint.value.set(value))
+
+    const forestFolder = gui.addFolder('Foret')
+    const forestParams = {
+        density: FOREST_DEFAULTS.density,
+        clusterRadius: FOREST_DEFAULTS.clusterRadius,
+        forestRadius: FOREST_DEFAULTS.forestRadius,
+        scale: FOREST_DEFAULTS.scale,
+        castShadows: FOREST_DEFAULTS.castShadows,
+    }
+
+    forestFolder
+        .add(forestParams, 'density', 0.2, 3, 0.1)
+        .name('Densite')
+        .onFinishChange(() => forestRegrow(forestParams))
+
+    forestFolder
+        .add(forestParams, 'forestRadius', 15, 35, 1)
+        .name('Dispersion')
+        .onFinishChange(() => forestRegrow(forestParams))
+
+    forestFolder
+        .add(forestParams, 'clusterRadius', 1, 6, 0.25)
+        .name('Groupement')
+        .onFinishChange(() => forestRegrow(forestParams))
+
+    forestFolder
+        .add(forestParams, 'scale', 0.6, 1.6, 0.05)
+        .name('Taille')
+        .onFinishChange(() => forestRegrow(forestParams))
+
+    forestFolder
+        .add(forestParams, 'castShadows')
+        .name('Ombres')
+        .onChange((value) => forestSetCastShadows(value))
+
+    const windFolder = gui.addFolder('Vent')
+    const windParams = {
+        baseStrength: WIND_DEFAULTS.baseStrength,
+        gustStrength: WIND_DEFAULTS.gustStrength,
+        gustIntervalMin: WIND_DEFAULTS.gustIntervalMin,
+        gustIntervalMax: WIND_DEFAULTS.gustIntervalMax,
+        declencherBourrasque: triggerGustFn,
+    }
+
+    windFolder
+        .add(windParams, 'baseStrength', 0, 0.5, 0.01)
+        .name('Vent de base')
+        .onChange((v) => {
+            wind.params.baseStrength = v
+        })
+    windFolder
+        .add(windParams, 'gustStrength', 0.5, 2, 0.05)
+        .name('Bourrasque')
+        .onChange((v) => {
+            wind.params.gustStrength = v
+        })
+    windFolder
+        .add(windParams, 'gustIntervalMin', 5, 60, 1)
+        .name('Intervalle min (s)')
+        .onChange((v) => {
+            wind.params.gustIntervalMin = v
+        })
+    windFolder
+        .add(windParams, 'gustIntervalMax', 10, 120, 1)
+        .name('Intervalle max (s)')
+        .onChange((v) => {
+            wind.params.gustIntervalMax = v
+        })
+    windFolder
+        .add(windParams, 'declencherBourrasque')
+        .name('Declencher bourrasque')
+}
+
+const countGeometryTriangles = (object) => {
+    if (!object.geometry) return 0
+    const index = object.geometry.getIndex()
+    const position = object.geometry.getAttribute('position')
+    if (!position) return 0
+    const baseTriangles = index ? index.count / 3 : position.count / 3
+    return object.isInstancedMesh ? baseTriangles * object.count : baseTriangles
+}
+
+const logVisibleTriangleCountOnce = (scene, camera, renderer) => {
+    renderer.render(scene, camera)
+    let triangles = 0
+    scene.traverseVisible((object) => {
+        triangles += countGeometryTriangles(object)
+    })
+    console.info(
+        `Triangles visibles au chargement: ${Math.round(triangles).toLocaleString('fr-FR')}`,
+    )
+}
+
+const init = async () => {
+    const { mesh: terrain, sampleHeight } = createTerrain({ anisotropy })
+    scene.add(terrain)
+
+    const grassData = createGrass({ sampleHeight, anisotropy, wind })
+    updateGrass = grassData.update
+    scene.add(grassData.mesh)
+
+    const { mesh: bushes } = createBushes({ sampleHeight, anisotropy, wind })
+    scene.add(bushes)
+
+    const { mesh: plants } = createPlants({ sampleHeight, anisotropy, wind })
+    scene.add(plants)
+
+    const {
+        group: forest,
+        featureTree,
+        update: forestUpdate,
+        regrow: forestRegrow,
+        setCastShadows: forestSetCastShadows,
+        trees: allTrees,
+    } = await createForest({
+        sampleHeight,
+        cameraClearing: { x: BASE_POSITION.x, z: BASE_POSITION.z, radius: 6 },
+        wind,
+    })
+    updateForest = forestUpdate
+    scene.add(forest)
+    scene.add(featureTree)
+
+    const pondData = await createPond(sampleHeight, sunDirection, camera)
+    updatePond = pondData.update
+    scene.add(pondData.group)
+
+    const foxData = await createFoxes({ sampleHeight, gui, audio, isDebug })
+    updateFoxes = foxData.update
+    scene.add(foxData.group)
+
+    const leavesData = createLeaves({ wind, gui, isDebug })
+    updateLeaves = (dt) => leavesData.update(dt, camera)
+    scene.add(leavesData.mesh)
+
+    setupGui({
+        terrain,
+        grassUniforms: grassData.uniforms,
+        grassRegrow: grassData.regrow,
+        dirLight: directionalLight,
+        forestRegrow,
+        forestSetCastShadows,
+    })
+
+    const pp = createPostProcessing({
+        renderer,
+        scene,
+        camera,
+        skyGroup,
+        sizes,
+        sunDirection,
+        gui,
+        isDebug,
+    })
+    composer = pp.composer
+    updatePostProcessing = pp.update
+
+    attachResize(renderer, camera, sizes, composer)
+
+    if (controls) {
+        controls.update()
+    } else {
+        applySway(camera, 0)
+    }
+
+    logVisibleTriangleCountOnce(scene, camera, renderer)
+
+    clock.start()
+    tick()
+}
 
 const tick = () => {
-    const elapsedTime = (performance.now() - startTime) / 1000
+    const dt = clock.getDelta()
+    const elapsedTime = clock.getElapsedTime()
 
     if (controls) {
         controls.update()
@@ -93,11 +362,25 @@ const tick = () => {
         applySway(camera, elapsedTime)
     }
 
+    updateWind(elapsedTime, audio)
     updateGrass(elapsedTime)
+    updatePond(elapsedTime)
+    updateForest(camera)
+    updateFoxes(dt)
+    updateLeaves(dt)
+    updatePostProcessing(camera)
 
     stats.update()
-    renderer.render(scene, camera)
+
+    if (composer) {
+        composer.render()
+    } else {
+        renderer.render(scene, camera)
+    }
+
     window.requestAnimationFrame(tick)
 }
 
-tick()
+init().catch((error) => {
+    console.error('Impossible d’initialiser la scène.', error)
+})

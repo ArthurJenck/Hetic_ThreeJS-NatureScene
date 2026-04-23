@@ -1,18 +1,20 @@
 import * as THREE from 'three'
 import { createToonMaterial } from './materials/toon.js'
+import { isInPondExclusion } from './terrain.js'
 
 const BLADE_WIDTH = 0.55
 const BLADE_HEIGHT = 0.75
-const SCATTER_AREA = 110
-const DEFAULT_COUNT = 22000
+const SCATTER_AREA = 60
+const MAX_COUNT = 1000000
+
+export const GRASS_DEFAULTS = {
+    count: 80000,
+    clusterRadius: 1,
+}
 
 const textureLoader = new THREE.TextureLoader()
 
-export const createGrass = ({
-    sampleHeight,
-    count = DEFAULT_COUNT,
-    anisotropy = 1,
-}) => {
+export const createGrass = ({ sampleHeight, anisotropy = 1, wind = null }) => {
     const colorMap = textureLoader.load('./static/grass/color.png')
     colorMap.colorSpace = THREE.SRGBColorSpace
     colorMap.anisotropy = anisotropy
@@ -28,11 +30,11 @@ export const createGrass = ({
     }
     normalAttr.needsUpdate = true
 
-    const uvOffsets = new Float32Array(count * 2)
-    const phases = new Float32Array(count)
-    const tintMixes = new Float32Array(count)
+    const uvOffsets = new Float32Array(MAX_COUNT * 2)
+    const phases = new Float32Array(MAX_COUNT)
+    const tintMixes = new Float32Array(MAX_COUNT)
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < MAX_COUNT; i++) {
         const quadrant = Math.floor(Math.random() * 4)
         uvOffsets[i * 2] = (quadrant % 2) * 0.5
         uvOffsets[i * 2 + 1] = Math.floor(quadrant / 2) * 0.5
@@ -61,15 +63,17 @@ export const createGrass = ({
     })
 
     const uniforms = {
-        uTime: { value: 0 },
-        uWindStrength: { value: 0.22 },
-        uTipTint: { value: new THREE.Color('#e8ee7a') },
-        uBaseTint: { value: new THREE.Color('#8fbd4a') },
+        uTime:         wind ? wind.uniforms.uTime         : { value: 0 },
+        uWindStrength: wind ? wind.uniforms.uWindStrength : { value: 0.22 },
+        uWindDir:      wind ? wind.uniforms.uWindDir      : { value: new THREE.Vector2(1, 0.3).normalize() },
+        uTipTint:  { value: new THREE.Color('#026600') },
+        uBaseTint: { value: new THREE.Color('#1c2e00') },
     }
 
     material.onBeforeCompile = (shader) => {
         shader.uniforms.uTime = uniforms.uTime
         shader.uniforms.uWindStrength = uniforms.uWindStrength
+        shader.uniforms.uWindDir = uniforms.uWindDir
         shader.uniforms.uTipTint = uniforms.uTipTint
         shader.uniforms.uBaseTint = uniforms.uBaseTint
 
@@ -83,6 +87,7 @@ export const createGrass = ({
                 attribute float aTintMix;
                 uniform float uTime;
                 uniform float uWindStrength;
+                uniform vec2 uWindDir;
                 varying float vHeightFactor;
                 varying float vTintMix;
                 `,
@@ -105,10 +110,11 @@ export const createGrass = ({
                 vTintMix = aTintMix;
                 float bend = pow(heightFactor, 2.0) * uWindStrength;
                 float t = uTime;
-                float swayX = sin(t * 1.3 + aPhase) + 0.5 * sin(t * 2.7 + aPhase * 1.7);
-                float swayZ = cos(t * 1.1 + aPhase * 0.8) * 0.6;
-                transformed.x += swayX * bend;
-                transformed.z += swayZ * bend;
+                float sway = sin(t * 1.3 + aPhase) + 0.5 * sin(t * 2.7 + aPhase * 1.7);
+                float swayPerp = cos(t * 1.1 + aPhase * 0.8) * 0.3;
+                vec2 perpDir = vec2(-uWindDir.y, uWindDir.x);
+                transformed.x += (uWindDir.x * sway + perpDir.x * swayPerp) * bend;
+                transformed.z += (uWindDir.y * sway + perpDir.y * swayPerp) * bend;
                 `,
             )
 
@@ -142,29 +148,51 @@ export const createGrass = ({
     }
     material.customProgramCacheKey = () => 'grass-wind-v3'
 
-    const mesh = new THREE.InstancedMesh(geometry, material, count)
+    const mesh = new THREE.InstancedMesh(geometry, material, MAX_COUNT)
     mesh.name = 'grass'
     mesh.frustumCulled = false
     mesh.receiveShadow = true
 
     const dummy = new THREE.Object3D()
 
-    for (let i = 0; i < count; i++) {
-        const x = (Math.random() - 0.5) * SCATTER_AREA
-        const z = (Math.random() - 0.5) * SCATTER_AREA
-        const y = sampleHeight(x, z)
-        dummy.position.set(x, y - 0.02, z)
-        dummy.rotation.set(0, Math.random() * Math.PI * 2, 0)
-        const scale = 0.7 + Math.random() * 0.6
-        dummy.scale.set(scale, scale * (0.85 + Math.random() * 0.3), scale)
-        dummy.updateMatrix()
-        mesh.setMatrixAt(i, dummy.matrix)
+    const regrow = (count, clusterRadius) => {
+        const clusterCount = Math.max(3, Math.round(count / 12))
+        const clusters = Array.from({ length: clusterCount }, () => [
+            (Math.random() - 0.5) * SCATTER_AREA,
+            (Math.random() - 0.5) * SCATTER_AREA,
+        ])
+
+        let placed = 0
+        for (
+            let attempts = 0;
+            placed < count && attempts < count * 2;
+            attempts++
+        ) {
+            const [cx, cz] = clusters[attempts % clusterCount]
+            const angle = Math.random() * Math.PI * 2
+            const r = Math.sqrt(Math.random()) * clusterRadius
+            const x = cx + Math.cos(angle) * r
+            const z = cz + Math.sin(angle) * r
+            if (isInPondExclusion(x, z, 0.2)) continue
+            const y = sampleHeight(x, z)
+            dummy.position.set(x, y - 0.02, z)
+            dummy.rotation.set(0, Math.random() * Math.PI * 2, 0)
+            const scale = 0.7 + Math.random() * 0.6
+            dummy.scale.set(scale, scale * (0.85 + Math.random() * 0.3), scale)
+            dummy.updateMatrix()
+            mesh.setMatrixAt(placed, dummy.matrix)
+            placed++
+        }
+
+        mesh.count = placed
+        mesh.instanceMatrix.needsUpdate = true
     }
-    mesh.instanceMatrix.needsUpdate = true
+
+    regrow(GRASS_DEFAULTS.count, GRASS_DEFAULTS.clusterRadius)
 
     const update = (elapsedTime) => {
         uniforms.uTime.value = elapsedTime
     }
 
-    return { mesh, update, uniforms }
+    return { mesh, update, uniforms, regrow }
 }
