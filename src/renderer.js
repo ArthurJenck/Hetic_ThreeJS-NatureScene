@@ -21,7 +21,6 @@ export const attachResize = (renderer, camera, sizes, composer = null) => {
         camera.updateProjectionMatrix()
 
         renderer.setSize(sizes.width, sizes.height)
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
 
         if (composer) composer.setSize(sizes.width, sizes.height)
     }

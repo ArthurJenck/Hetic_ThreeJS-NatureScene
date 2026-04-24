@@ -45,9 +45,10 @@ export const createAudio = (camera, gui, isDebug = false) => {
             sfxGust.setVolume(state.muted ? 0 : state.gustVolume)
         })
 
-        ;['idle1', 'idle2', 'idle3'].forEach((name) => {
+        foxBuffers.idle = [null, null, null]
+        ;['idle1', 'idle2', 'idle3'].forEach((name, i) => {
             loader.load(`./static/sounds/fox/${name}.mp3`, (buffer) => {
-                foxBuffers.idle.push(buffer)
+                foxBuffers.idle[i] = buffer
             })
         })
         loader.load('./static/sounds/fox/walk.mp3', (buffer) => {
@@ -74,21 +75,58 @@ export const createAudio = (camera, gui, isDebug = false) => {
 
     if (isDebug) {
         const folder = gui.addFolder('Audio')
-        folder.add(state, 'musicVolume', 0, 1, 0.01).name('Musique').onChange((v) => {
-            if (!state.muted) music.setVolume(v)
-        })
-        folder.add(state, 'windAmbientVolume', 0, 1, 0.01).name('Vent ambiant').onChange((v) => {
-            if (!state.muted) sfxWindAmbient.setVolume(v)
-        })
-        folder.add(state, 'gustVolume', 0, 2, 0.01).name('Vent bourrasque').onChange((v) => {
-            if (!state.muted) sfxGust.setVolume(v)
-        })
-        folder.add(state, 'foxVolume', 0, 2, 0.01).name('Volume renard').onChange((v) => {
-            if (!state.muted) foxVolumeListeners.forEach((cb) => cb(v))
-        })
+        folder
+            .add(state, 'musicVolume', 0, 1, 0.01)
+            .name('Musique')
+            .onChange((v) => {
+                if (!state.muted) music.setVolume(v)
+            })
+        folder
+            .add(state, 'windAmbientVolume', 0, 1, 0.01)
+            .name('Vent ambiant')
+            .onChange((v) => {
+                if (!state.muted) sfxWindAmbient.setVolume(v)
+            })
+        folder
+            .add(state, 'gustVolume', 0, 2, 0.01)
+            .name('Vent bourrasque')
+            .onChange((v) => {
+                if (!state.muted) sfxGust.setVolume(v)
+            })
+        folder
+            .add(state, 'foxVolume', 0, 2, 0.01)
+            .name('Volume renard')
+            .onChange((v) => {
+                if (!state.muted) foxVolumeListeners.forEach((cb) => cb(v))
+            })
         folder.add(state, 'muted').name('Muet').onChange(muteOnChange)
     } else {
-        gui.add(state, 'muted').name('Muet').onChange(muteOnChange)
+        const audioFolder = gui.addFolder('Audio')
+        audioFolder.add(state, 'muted').name('Muet').onChange(muteOnChange)
+        audioFolder
+            .add(state, 'musicVolume', 0, 1, 0.01)
+            .name('Musique')
+            .onChange((v) => {
+                if (!state.muted) music.setVolume(v)
+            })
+        audioFolder
+            .add(state, 'windAmbientVolume', 0, 1, 0.01)
+            .name('Vent ambiant')
+            .onChange((v) => {
+                if (!state.muted) sfxWindAmbient.setVolume(v)
+            })
+        audioFolder
+            .add(state, 'gustVolume', 0, 2, 0.01)
+            .name('Vent bourrasque')
+            .onChange((v) => {
+                if (!state.muted) sfxGust.setVolume(v)
+            })
+        audioFolder
+            .add(state, 'foxVolume', 0, 2, 0.01)
+            .name('Renard')
+            .onChange((v) => {
+                if (!state.muted) foxVolumeListeners.forEach((cb) => cb(v))
+            })
     }
 
     const getGustDuration = () => sfxGust.buffer?.duration ?? null
@@ -96,5 +134,12 @@ export const createAudio = (camera, gui, isDebug = false) => {
     const getFoxVolume = () => (state.muted ? 0 : state.foxVolume)
     const onFoxVolumeChange = (cb) => foxVolumeListeners.push(cb)
 
-    return { playGust, getGustDuration, listener, getFoxBuffers, getFoxVolume, onFoxVolumeChange }
+    return {
+        playGust,
+        getGustDuration,
+        listener,
+        getFoxBuffers,
+        getFoxVolume,
+        onFoxVolumeChange,
+    }
 }

@@ -53,12 +53,14 @@ class Fox {
         this.waypoint = null
         this.currentAction = null
         this.nextIdlePlay = 0
+        this.lastIdleIndex = -1
 
         this.params = {
             walkProbability: 0.6,
             walkSpeed: 1.4,
             surveyMinDuration: 6,
             surveyMaxDuration: 14,
+            walkPlaybackRate: 1.6,
         }
 
         this._enterSurvey()
@@ -98,6 +100,7 @@ class Fox {
         if (buffers?.walk && this.walkAudio) {
             if (!this.walkAudio.buffer) this.walkAudio.setBuffer(buffers.walk)
             if (!this.walkAudio.isPlaying) this.walkAudio.play()
+            this.walkAudio.setPlaybackRate(this.params.walkPlaybackRate)
         }
         this._playAction('Walk')
     }
@@ -110,11 +113,20 @@ class Fox {
             this.nextIdlePlay -= dt
             if (this.nextIdlePlay <= 0) {
                 const buffers = this.getFoxBuffers?.()
-                if (buffers?.idle?.length > 0 && this.idleAudio) {
-                    const buf = buffers.idle[Math.floor(Math.random() * buffers.idle.length)]
-                    if (this.idleAudio.isPlaying) this.idleAudio.stop()
-                    this.idleAudio.setBuffer(buf)
-                    this.idleAudio.play()
+                if (buffers?.idle && this.idleAudio) {
+                    const loaded = buffers.idle
+                        .map((buf, i) => ({ buf, i }))
+                        .filter(({ buf }) => buf !== null)
+                    if (loaded.length > 0) {
+                        const candidates = loaded.length > 1
+                            ? loaded.filter(({ i }) => i !== this.lastIdleIndex)
+                            : loaded
+                        const { buf, i } = candidates[Math.floor(Math.random() * candidates.length)]
+                        this.lastIdleIndex = i
+                        if (this.idleAudio.isPlaying) this.idleAudio.stop()
+                        this.idleAudio.setBuffer(buf)
+                        this.idleAudio.play()
+                    }
                 }
                 this.nextIdlePlay = 4 + Math.random() * 8
             }
@@ -260,6 +272,9 @@ export const createFoxes = async ({ sampleHeight, gui, audio, isDebug = false })
         foxFolder.add(fox.params, 'walkSpeed', 0.5, 3, 0.1).name('Vitesse')
         foxFolder.add(fox.params, 'surveyMinDuration', 1, 15, 0.5).name('Obs. min (s)')
         foxFolder.add(fox.params, 'surveyMaxDuration', 3, 30, 0.5).name('Obs. max (s)')
+        foxFolder.add(fox.params, 'walkPlaybackRate', 0.5, 4, 0.1)
+            .name('Audio marche (x)')
+            .onChange((v) => { if (walkAudio?.isPlaying) walkAudio.setPlaybackRate(v) })
     }
 
     return { group, update: (dt) => fox.update(dt) }

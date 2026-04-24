@@ -178,8 +178,10 @@ export const createPostProcessing = ({
     }
 
     let occFrame = 0
+    let composerBypassed = false
 
     const update = (camera) => {
+        if (composerBypassed) return
         sunScreenPos.copy(sunWorldPos).project(camera)
         godRaysPass.uniforms.uSunPos.value.set(
             sunScreenPos.x * 0.5 + 0.5,
@@ -188,6 +190,9 @@ export const createPostProcessing = ({
         if (ppParams.godRays && occFrame % 6 === 0) updateOcclusion(camera)
         occFrame++
     }
+
+    const setWarmEnabled = (v) => { warmTintPass.enabled = v }
+    const setComposerBypass = (v) => { composerBypassed = v }
 
     if (isDebug) {
         const folder = gui.addFolder('Post-processing')
@@ -262,5 +267,7 @@ export const createPostProcessing = ({
         update,
         bloomPass,
         setGodRaysEnabled: (v) => { godRaysPass.uniforms.uEnabled.value = v ? 1 : 0 },
+        setWarmEnabled,
+        setComposerBypass,
     }
 }

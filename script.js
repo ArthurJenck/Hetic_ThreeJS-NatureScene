@@ -64,13 +64,17 @@ let composer = null
 let updatePostProcessing = () => {}
 let setGrassCount = () => {}
 let setGodRaysEnabled = () => {}
+let setWarmEnabled = () => {}
+let setComposerBypass = () => {}
+let composerBypassed = false
+let setForestCastShadows = () => {}
 let adaptiveBloomPass = null
 
 const QUALITY_HIGH = 2, QUALITY_MEDIUM = 1, QUALITY_LOW = 0
-const GRASS_BY_TIER = [40000, 60000, 80000]
-const FPS_SAMPLE_INTERVAL = 3
-const DOWNGRADE_FPS = 50, DOWNGRADE_HOLD = 6
-const UPGRADE_FPS = 57, UPGRADE_HOLD = 15
+const GRASS_BY_TIER = [25000, 60000, 80000]
+const FPS_SAMPLE_INTERVAL = 2
+const DOWNGRADE_FPS = 50, DOWNGRADE_HOLD = 2
+const UPGRADE_FPS = 57, UPGRADE_HOLD = 20
 let currentTier = QUALITY_HIGH
 let fpsSampleTime = 0
 let fpsSampleFrames = 0
@@ -81,6 +85,19 @@ const applyQualityTier = (tier) => {
     setGrassCount(GRASS_BY_TIER[tier])
     setGodRaysEnabled(tier === QUALITY_HIGH)
     if (adaptiveBloomPass) adaptiveBloomPass.enabled = tier !== QUALITY_LOW
+    setWarmEnabled(tier !== QUALITY_LOW)
+    const bypass = tier === QUALITY_LOW
+    setComposerBypass(bypass)
+    composerBypassed = bypass
+    renderer.setPixelRatio(tier === QUALITY_HIGH ? Math.min(window.devicePixelRatio, 1.5) : 1.0)
+    setForestCastShadows(tier !== QUALITY_LOW)
+    const shadowSize = tier === QUALITY_LOW ? 256 : 512
+    directionalLight.shadow.mapSize.set(shadowSize, shadowSize)
+    if (directionalLight.shadow.map) {
+        directionalLight.shadow.map.dispose()
+        directionalLight.shadow.map = null
+    }
+    renderer.shadowMap.needsUpdate = true
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -332,6 +349,7 @@ const init = async () => {
         wind,
     })
     updateForest = forestUpdate
+    setForestCastShadows = forestSetCastShadows
     scene.add(forest)
     scene.add(featureTree)
 
@@ -369,9 +387,13 @@ const init = async () => {
     composer = pp.composer
     updatePostProcessing = pp.update
     setGodRaysEnabled = pp.setGodRaysEnabled
+    setWarmEnabled = pp.setWarmEnabled
+    setComposerBypass = pp.setComposerBypass
     adaptiveBloomPass = pp.bloomPass
 
     attachResize(renderer, camera, sizes, composer)
+
+    applyQualityTier(currentTier)
 
     if (controls) {
         controls.update()
@@ -433,7 +455,7 @@ const tick = () => {
 
     stats.update()
 
-    if (composer) {
+    if (composer && !composerBypassed) {
         composer.render()
     } else {
         renderer.render(scene, camera)
